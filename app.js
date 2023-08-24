@@ -2,8 +2,9 @@
 import express from "express";
 import bodyParser from "body-parser";
 import mongoose from 'mongoose';
-import encrypt from 'mongoose-encryption';
+// import encrypt from 'mongoose-encryption';
 import env from 'dotenv';
+import md5 from 'md5';
 
 env.config()
 
@@ -19,7 +20,7 @@ const userSchema = new mongoose.Schema({
     password:String
 })
 
-userSchema.plugin(encrypt,{secret:process.env.KEY,encryptedFields:["password"]})
+// userSchema.plugin(encrypt,{secret:process.env.KEY,encryptedFields:["password"]})
 
 const User = mongoose.model("user",userSchema)
 
@@ -43,7 +44,8 @@ app.post("/login",(req,res)=>{
     async function login(){
         const user = await User.findOne({email:req.body.username});
         if(user){
-            if(user.email ===  req.body.username && user.password === req.body.password){
+            if(user.email ===  req.body.username && user.password === md5(req.body.password)){
+                console.log(md5(req.body.password));
                 res.render("secrets")
             }else{
                 res.redirect("login")
@@ -59,7 +61,7 @@ app.post("/register",(req,res)=>{
         async function register(){
             const user = new User({
                 email:req.body.username,
-                password:req.body.password
+                password:md5(req.body.password)
             })
             user.save()
             res.render("login")
