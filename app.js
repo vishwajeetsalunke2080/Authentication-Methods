@@ -2,20 +2,32 @@ import express from "express";
 import bodyParser from "body-parser";
 import mongoose from "mongoose";
 import env from "dotenv";
-import bcrypt from "bcrypt";
-// import encrypt from 'mongoose-encryption';
-// import md5 from 'md5';
+import passport from "passport";
+import passportLocalMongoose from "passport-local-mongoose";
+import session from "express-session";
 
 env.config();
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-const saltRounds = 10;
-
 app.set("view engine", "ejs");
 app.use(express.static("public"));
 app.use(bodyParser.urlencoded({ extended: true }));
+
+// creating session using following params
+app.use(
+  session({
+    secret: process.env.KEY,
+    resave: false,
+    saveUninitialized: false,
+  })
+);
+
+// initialize passport to be used in project
+app.use(passport.initialize());
+// telling passport to use session in authentication
+app.use(passport.session());
 
 mongoose.connect("mongodb://127.0.0.1:27017/UserDB");
 const userSchema = new mongoose.Schema({
@@ -23,9 +35,20 @@ const userSchema = new mongoose.Schema({
   password: String,
 });
 
-// userSchema.plugin(encrypt,{secret:process.env.KEY,encryptedFields:["password"]})
+// creating userSchema and plugging it to passport-local-mongoose
+userSchema.plugin(passportLocalMongoose);
 
+// creating a user Collection and telling it to use above mentioned schema
 const User = mongoose.model("user", userSchema);
+
+// createStrategy is a new addon to creating a new LocalStrategy in Passport authentication
+passport.use(User.createStrategy());
+
+// serializeUser is basically creating a new user Cookie
+passport.serializeUser(User.serializeUser());
+
+// deserializeUser is basically removing user Cookie
+passport.deserializeUser(User.deserializeUser());
 
 app.get("/", (req, res) => {
   res.render("home");
@@ -40,37 +63,55 @@ app.get("/login", (req, res) => {
 });
 
 app.get("/logout", (req, res) => {
-  res.redirect("/login");
+  req.logOut((err)=>{
+    if(err){
+      console.error(err);
+    }else{
+      console.log("logged out successfully");
+      res.redirect("/login");
+    }
+  });  
+});
+
+app.get("/secrets", (req, res) => {
+  if (req.isAuthenticated()) {
+    res.render("secrets");
+  } else {
+    res.redirect("/login");
+  }
 });
 
 app.post("/login", (req, res) => {
-  async function login() {
-    const user = await User.findOne({ email: req.body.username });
-    if (user) {
-      const match = await bcrypt.compare(req.body.password, user.password);
-      if (user.email === req.body.username && match) {
-        
-        res.render("secrets");
-      } else {
-        res.redirect("login");
-      }
+  const user = new User({
+    username: req.body.username,
+    password: req.body.password,
+  });
+  req.logIn(user, (err) => {
+    if(err) {
+      console.error(err);
+    } else {
+      passport.authenticate("local")(req, res, () => {
+        res.redirect("/secrets");
+      });
     }
-  }
-  login();
+  });
 });
 
 app.post("/register", (req, res) => {
-  async function register() {
-    bcrypt.hash(req.body.password, saltRounds).then((result) => {
-      const user = new User({
-        email: req.body.username,
-        password: result,
-      });
-      user.save();
-    });
-    res.render("login");
-  }
-  register();
+  User.register(
+    { username: req.body.username },
+    req.body.password,
+    (err, user) => {
+      if (err) {
+        res.render("register",{err:err})
+      } else {
+        console.log(user);
+        User.authenticate("local")(req, res, () => {
+          res.redirect("/login");
+        });
+      }
+    }
+  );
 });
 
 app.listen(port, () => {
